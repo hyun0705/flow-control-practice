@@ -21,7 +21,7 @@ TypeScript + Node.js로 구현한 **API rate limiting & concurrency control** �
 
 ### 설치 & 실행
 ```bash
-git clone <repo-url>
+git clone https://github.com/hyun0705/flow-control-practice.git
 cd flow-control-practice
 npm install
 npm run build
