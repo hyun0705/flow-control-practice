@@ -6,3 +6,7 @@ coverage/
 .env.local
 .DS_Store
 Thumbs.db
+
+# 프로젝트 폴더에서 Claude Code 열 경우 생성되는 로컬 설정 유출 방지
+.claude/
+
