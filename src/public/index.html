@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flow Control</title>
+  <link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+  <header class="hdr">
+    <div class="hdr__left">
+      <h1>flow-control</h1>
+      <span class="hdr__sub">policing + shaping</span>
+    </div>
+    <div class="hdr__right">
+      <button class="link" id="helpBtn" type="button">Help</button>
+      <span class="dot" id="connDot" aria-hidden="true"></span>
+      <span class="conn" id="statusBadge">connecting</span>
+    </div>
+  </header>
+
+  <section class="banner" id="statusBanner" data-mode="idle">
+    <span class="banner__dot" aria-hidden="true"></span>
+    <div class="banner__body">
+      <span class="banner__title" id="bannerTitle">idle</span>
+      <span class="banner__desc" id="bannerDesc">대기 중. 트래픽이 들어오면 상태가 바뀝니다.</span>
+    </div>
+  </section>
+
+  <section class="flow" aria-label="request pipeline">
+    <ol class="flow__list">
+      <li class="flow__step" id="stageIn">
+        <span class="flow__key">in</span>
+        <span class="flow__name">요청</span>
+        <span class="flow__val" id="stageInCount">—</span>
+      </li>
+      <li class="flow__step" id="stageToken" data-tip="토큰 버킷. 입장권. 없으면 리필까지 대기.">
+        <span class="flow__key">token</span>
+        <span class="flow__name">토큰</span>
+        <span class="flow__val"><span id="stageTokenAvail">10</span><span class="flow__sep">/</span><span id="stageTokenCap">10</span></span>
+      </li>
+      <li class="flow__step" id="stageRate" data-tip="토큰 부족으로 대기. 5초 초과 시 429.">
+        <span class="flow__key">rate-q</span>
+        <span class="flow__name">토큰 대기</span>
+        <span class="flow__val" id="stageRateCount">0</span>
+      </li>
+      <li class="flow__step" id="stageQueue" data-tip="슬롯이 꽉 차서 대기. 큐 가득 시 503.">
+        <span class="flow__key">queue</span>
+        <span class="flow__name">큐</span>
+        <span class="flow__val" id="stageQueueCount">0</span>
+      </li>
+      <li class="flow__step" id="stageSlot" data-tip="실제 처리 중인 요청. max=3.">
+        <span class="flow__key">slot</span>
+        <span class="flow__name">처리</span>
+        <span class="flow__val"><span id="stageSlotActive">0</span><span class="flow__sep">/</span><span id="stageSlotMax">3</span></span>
+      </li>
+      <li class="flow__step" id="stageDone">
+        <span class="flow__key">done</span>
+        <span class="flow__name">완료</span>
+        <span class="flow__val" id="stageDoneCount">0</span>
+      </li>
+    </ol>
+  </section>
+
+  <aside class="doc" id="helpPanel" hidden>
+    <div class="doc__head">
+      <h2>처음 사용하는 분에게</h2>
+      <button class="link" id="helpCloseBtn" type="button">close</button>
+    </div>
+    <div class="doc__body">
+
+      <section class="doc__sec">
+        <h3>이게 뭐예요?</h3>
+        <p>
+          몰려오는 요청을 서버가 <b>얼마나 빨리 받을지</b>(rate limit)와
+          <b>동시에 몇 개 처리할지</b>(concurrency)를 제어하는 시스템입니다.
+          실제 백엔드 서버(Stripe API, HTTP 커넥션 풀, DB pool 등)의 축소판.
+        </p>
+      </section>
+
+      <section class="doc__sec">
+        <h3>요청이 거치는 5단계</h3>
+        <ol class="doc__steps">
+          <li><b>요청 도착</b> — 버튼 눌러 POST /api/work 발사.</li>
+          <li><b>토큰</b> — 입장권 1장 필요. 초당 5장 리필, 최대 10장.</li>
+          <li><b>토큰 대기(rate-q)</b> — 토큰이 없으면 여기서 대기. 5초 초과 시 <code>429</code>.</li>
+          <li><b>큐(queue)</b> — 토큰은 받았지만 슬롯이 꽉 차면 여기서 대기. 꽉 차면 <code>503</code>.</li>
+          <li><b>처리(slot)</b> — 실제 작업 수행. 동시 최대 3개. 500~2000ms 랜덤.</li>
+        </ol>
+      </section>
+
+      <section class="doc__sec">
+        <h3>카드 의미 한 줄씩</h3>
+        <dl class="doc__defs">
+          <dt>완료 / 실패</dt>
+          <dd>누적 성공 200 / 거절 (429+503). reset으로 0 복귀.</dd>
+          <dt>queue</dt>
+          <dd>슬롯 대기줄. 꽉 차면(100) <code>503</code> 반환.</dd>
+          <dt>avg wait</dt>
+          <dd>최근 20건 큐 대기시간 평균(ms). 체감 지연.</dd>
+          <dt>slots</dt>
+          <dd>지금 처리 중인 개수 / 최대(3). 3/3이면 포화.</dd>
+          <dt>token</dt>
+          <dd>남은 입장권 / 최대(10). 초당 5장 리필.</dd>
+          <dt>rate-q</dt>
+          <dd>토큰 없어 대기 중인 요청 / 최대(100). 5초 초과 시 <code>429</code>.</dd>
+        </dl>
+      </section>
+
+      <section class="doc__sec">
+        <h3>로그 읽는 법</h3>
+        <p class="doc__mono">
+          10:23:45 &nbsp;#7 &nbsp;200 &nbsp;1240ms &nbsp;work=823ms
+        </p>
+        <ul class="doc__list">
+          <li><b>#7</b> — 7번째 요청(burst 내 순번)</li>
+          <li><b>200</b> — HTTP 상태. 200=완료, 429=rate timeout, 503=queue full</li>
+          <li><b>1240ms</b> — 요청 발사부터 응답까지 전체 시간</li>
+          <li><b>work=823ms</b> — 실제 처리 시간. 1240 − 823 = 417ms가 대기 시간</li>
+        </ul>
+        <p class="doc__mono doc__mono--err">
+          10:23:48 &nbsp;#34 &nbsp;429 &nbsp;Too Many Requests (rate timeout)
+        </p>
+        <p class="doc__note">→ 빨간 줄. 토큰 대기 5초 초과해서 거절됨.</p>
+
+        <p class="doc__mono">burst done &nbsp;25300ms &nbsp;200:65 429:35 503:0</p>
+        <p class="doc__note">→ 100건 중 65건 성공, 35건 429 거절, 503 없음.</p>
+      </section>
+
+      <section class="doc__sec">
+        <h3>이렇게 해보세요</h3>
+        <ol class="doc__steps">
+          <li><b>send</b> 1~2번 — 여유 상태 관찰. 슬롯 1/3 깜빡, 토큰 10에서 잠깐 감소 후 리필.</li>
+          <li><b>burst 10</b> — 동시성 제한 관찰. 슬롯 3/3 포화, 큐 7개 쌓임.</li>
+          <li><b>burst 30</b> — shaping 관찰. 토큰 0, rate-q 20개 쌓였다가 서서히 드레인. 전부 200.</li>
+          <li><b>burst 100</b> — 거절 발생. 약 30~40% 429로 떨어짐. 배너 🔴 saturated.</li>
+          <li><b>burst 200</b> — 극한. rate-q까지 overflow해서 503도 섞임.</li>
+          <li><b>reset</b> — 카운터 초기화. 활성 요청은 안 끊김.</li>
+        </ol>
+      </section>
+
+      <section class="doc__sec">
+        <h3>어느 카드가 빨개지나로 원인 파악</h3>
+        <ul class="doc__list">
+          <li><b>token 0/10</b> → 토큰이 소진됨. 자연스러운 현상.</li>
+          <li><b>rate-q</b> 숫자 큼 → 토큰 리필보다 유입이 빠름. 429 발생 임박.</li>
+          <li><b>queue</b> 숫자 큼 → 처리 속도가 유입보다 느림. 503 발생 임박.</li>
+          <li><b>slots 3/3</b> 지속 → 최대치 사용 중. 정상 full-throughput.</li>
+        </ul>
+      </section>
+
+    </div>
+  </aside>
+
+  <main class="grid">
+    <section class="cell">
+      <div class="cell__head">
+        <span class="cell__label">완료 / 실패</span>
+        <span class="cell__tip" tabindex="0" data-tip="완료 = 성공 처리된 요청(200). 실패 = 거절된 요청(429 timeout + 503 queue full).">info</span>
+      </div>
+      <div class="cell__value cell__value--split">
+        <span id="totalProcessed">0</span>
+        <span class="cell__sep">/</span>
+        <span class="cell__bad" id="totalRejected">0</span>
+      </div>
+      <div class="cell__unit">200 · 429+503</div>
+    </section>
+
+    <section class="cell">
+      <div class="cell__head">
+        <span class="cell__label">queue</span>
+        <span class="cell__tip" tabindex="0" data-tip="슬롯 대기줄. 꽉 차면 503.">info</span>
+      </div>
+      <div class="cell__value" id="queueSize">0 / 100</div>
+      <div class="cell__unit">waiting / cap</div>
+      <div class="bar"><div class="bar__fill" id="queueBar"></div></div>
+    </section>
+
+    <section class="cell">
+      <div class="cell__head">
+        <span class="cell__label">avg wait</span>
+        <span class="cell__tip" tabindex="0" data-tip="최근 20건 큐 대기시간의 이동 평균.">info</span>
+      </div>
+      <div class="cell__value" id="avgWaitMs">0<span class="cell__u">ms</span></div>
+      <div class="cell__unit">rolling window N=20</div>
+    </section>
+
+    <section class="cell">
+      <div class="cell__head">
+        <span class="cell__label">slots</span>
+        <span class="cell__tip" tabindex="0" data-tip="실제 처리 중인 요청 수. 슬롯 가득 시 큐로.">info</span>
+      </div>
+      <div class="cell__value" id="slotText">0 / 3</div>
+      <div class="cell__unit">active / max</div>
+      <div class="slots" id="slotGrid"></div>
+    </section>
+
+    <section class="cell">
+      <div class="cell__head">
+        <span class="cell__label">token</span>
+        <span class="cell__tip" tabindex="0" data-tip="입장권. 초당 5개 리필. 소진 시 rate-q로.">info</span>
+      </div>
+      <div class="cell__value" id="tokenAvailable">10</div>
+      <div class="cell__unit" id="tokenSub">/ 10 · refill 5/s</div>
+      <div class="bar bar--token"><div class="bar__fill bar__fill--token" id="tokenGauge"></div></div>
+    </section>
+
+    <section class="cell">
+      <div class="cell__head">
+        <span class="cell__label">rate-q</span>
+        <span class="cell__tip" tabindex="0" data-tip="토큰 대기. 5초 초과 시 429.">info</span>
+      </div>
+      <div class="cell__value" id="ratePending">0</div>
+      <div class="cell__unit" id="rateSub">/ 100 · avg 0ms</div>
+      <div class="bar bar--rate"><div class="bar__fill bar__fill--rate" id="rateGauge"></div></div>
+    </section>
+  </main>
+
+  <section class="controls">
+    <div class="ctrl">
+      <span class="ctrl__label">1건</span>
+      <button class="btn" id="sendBtn">send</button>
+    </div>
+
+    <div class="ctrl">
+      <span class="ctrl__label">N건 동시 발사</span>
+      <div class="ctrl__row">
+        <div class="num">
+          <button type="button" class="num__btn" id="burstDec" aria-label="decrease">−</button>
+          <input type="number" id="burstCount" class="num__input" value="20" min="1" max="1000" step="1" />
+          <button type="button" class="num__btn" id="burstInc" aria-label="increase">+</button>
+        </div>
+        <button class="btn btn--ghost" id="burstBtn">fire</button>
+      </div>
+    </div>
+
+    <div class="ctrl">
+      <span class="ctrl__label">초기화</span>
+      <button class="btn btn--ghost" id="resetBtn">reset</button>
+    </div>
+
+    <span class="controls__hint">POST /api/work · 작업 시간 500–2000ms 랜덤</span>
+  </section>
+
+  <section class="log">
+    <div class="log__head">
+      <h2>log</h2>
+      <span class="log__hint">latest first · no limit · reset로 비움</span>
+    </div>
+    <ul class="log__list" id="logList"></ul>
+  </section>
+
+  <script src="/dashboard.js"></script>
+</body>
+</html>

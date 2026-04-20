@@ -1,0 +1,23 @@
+{
+  "name": "flow-control-practice",
+  "version": "1.0.0",
+  "description": "Flow control practice: ConcurrencyLimiter, Queue, TokenBucket, WaitingInfo with SSE dashboard",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc --noEmit && tsc",
+    "postbuild": "node -e \"require('fs').cpSync('src/public','dist/public',{recursive:true,force:true})\"",
+    "start": "node dist/index.js",
+    "dev": "npm run build && node dist/index.js",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.5",
+    "typescript": "^5.4.5"
+  }
+}
